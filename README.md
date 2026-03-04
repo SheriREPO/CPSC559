@@ -41,12 +41,15 @@
 
 ## Other things left To do :
 
-RabbitMQ usage:
+#### RabbitMQ usage:
+
 Bully lets you recover from a **leader** crash, but if **RabbitMQ** is running on one PC it’s a **single point of failure**, so to keep working when that PC goes down you must make RabbitMQ **highly available (cluster/replicated)** or **move election off RabbitMQ** (or host RabbitMQ on **stable always-on infrastructure**).
 
-“Too many tasks” showing up (stale backlog):
-* **Bug/ops issue:** Old messages persisted in RabbitMQ (durable queues), so when a new leader binds it can suddenly consume leftover tasks from previous runs.
-* **Fix options:** purge/reset queues for clean demos, or make queues non-durable so each run starts clean.
+#### “Too many tasks” showing up (stale backlog):
+
+**Bug/ops issue:** Old messages persisted in RabbitMQ (durable queues), so when a new leader binds it can suddenly consume leftover tasks from previous runs.
+
+**Fix options:** purge/reset queues for clean demos, or make queues non-durable so each run starts clean.
 
 ## Notes : How to run the task manager
 ### Template:
@@ -56,25 +59,33 @@ docker run -d --name <container_name> \
   -p <ui_host_port>:15672 \
   rabbitmq:3-management
 Command to start docker on local port 15672:
->> docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:3-management
+
+```docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:3-management```
 
 ### Set environment
 Set environment and install libraries:
 I'm using conda env called 'work'
->> conda init
->> source ~/.bash_profile
->> conda activate work
+
+```conda init```
+
+```source ~/.bash_profile```
+
+```conda activate work```
 
 ### Dependencies
 Install dependencies:
->> pip install aio-pika
+
+```pip install aio-pika```
 
 ### Commands
 Command to run gui and start different servers:
->> python3 gui.py
+
+```python3 gui.py```
 
 Command to stop:
-docker stop rabbitmq
+
+```docker stop rabbitmq```
 
 Command to clean:
-docker rm rabbitmq
+
+```docker rm rabbitmq```
