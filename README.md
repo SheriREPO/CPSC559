@@ -32,22 +32,21 @@
 * **Bug:** Each leader’s `task_counter` resets, so task IDs repeat across leader changes (e.g., task 1 appears again).
 * **Fix:** Make IDs unique across leaders (e.g., `leader_<id>_task_<n>`) or switch to a global-id strategy.
 
-## 7) “Too many tasks” showing up (stale backlog)
 
-* **Bug/ops issue:** Old messages persisted in RabbitMQ (durable queues), so when a new leader binds it can suddenly consume leftover tasks from previous runs.
-* **Fix options:** purge/reset queues for clean demos, or make queues non-durable so each run starts clean.
-
-### 8) Added a GUI button to display the leader’s completed-task log
+### 7) Added a GUI button to display the leader’s completed-task log
 
 * **Problem:** You had no easy way to view the saved history; it was just scrolling logs.
 * **Change:** Added a Tkinter button (e.g., **“Show Completed (Leader)”**) and a handler function that:
 
 
-//Issues to fix later
+//To do :
 
 RabbitMQ usage:
 Bully lets you recover from a **leader** crash, but if **RabbitMQ** is running on one PC it’s a **single point of failure**, so to keep working when that PC goes down you must make RabbitMQ **highly available (cluster/replicated)** or **move election off RabbitMQ** (or host RabbitMQ on **stable always-on infrastructure**).
 
+“Too many tasks” showing up (stale backlog):
+* **Bug/ops issue:** Old messages persisted in RabbitMQ (durable queues), so when a new leader binds it can suddenly consume leftover tasks from previous runs.
+* **Fix options:** purge/reset queues for clean demos, or make queues non-durable so each run starts clean.
 
 //How to run:
 Template:
