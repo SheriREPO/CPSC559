@@ -4,6 +4,7 @@ from tkinter import ttk
 import asyncio
 import threading
 from server import Server
+from database import get_db
 from config import SERVER_IDS, TASK_OPTIONS
 
 servers = {}
@@ -111,6 +112,19 @@ def show_completed_tasks():
         log(f"  - task_id={t['task_id']} | {t['task']} | worker={t['worker']}")
 
 
+def show_task_db():
+    rows = get_db().get_all_tasks()
+    log(f"[DB] Task store — {len(rows)} row(s):")
+    if not rows:
+        log("  (empty)")
+        return
+    log(f"  {'task_id':<30} {'status':<12} {'worker':<8} task_name")
+    log(f"  {'-'*30} {'-'*12} {'-'*8} {'-'*30}")
+    for task_id, task_name, category, status, worker_id, created_at, updated_at in rows:
+        w = str(worker_id) if worker_id is not None else "—"
+        log(f"  {task_id:<30} {status:<12} {w:<8} {task_name}")
+
+
 root = tk.Tk()
 root.title("Distributed Task System (Bully Election + RabbitMQ)")
 root.geometry("1200x700")
@@ -159,6 +173,7 @@ task_combo.pack(side=tk.LEFT, padx=5, pady=5)
 
 tk.Button(task_frame, text="Submit Task", command=submit_task).pack(side=tk.LEFT, padx=5, pady=5)
 tk.Button(task_frame, text="Show Completed (Leader)", command=show_completed_tasks).pack(side=tk.LEFT, padx=5, pady=5)
+tk.Button(task_frame, text="Show Task DB", command=show_task_db).pack(side=tk.LEFT, padx=5, pady=5)
 
 log_frame = tk.Frame(root)
 log_frame.pack(fill=tk.BOTH, expand=True)

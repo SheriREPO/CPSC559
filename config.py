@@ -1,9 +1,10 @@
-RABBIT_URL = "amqp://guest:guest@localhost/"
+RABBIT_URL = "amqp://guest:guest@127.0.0.1/"  
 SERVER_IDS = [1, 2, 3, 4, 5]
 TASK_SUBMISSION_QUEUE = "task_submission"
 WORKER_TASKS_QUEUE = "worker_tasks"
 HEARTBEAT_TIMEOUT = 3
 ELECTION_TIMEOUT = 2
+DB_PATH = "tasks.db"
 
 TASK_OPTIONS = [
 

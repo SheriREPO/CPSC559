@@ -2,6 +2,7 @@
 import asyncio
 import time
 from rabbitmq import RabbitMQ
+from database import get_db
 from config import RABBIT_URL, HEARTBEAT_TIMEOUT, ELECTION_TIMEOUT
 
 
@@ -12,6 +13,7 @@ class Server:
         self.on_status_change = on_status_change
 
         self.rabbit = RabbitMQ(RABBIT_URL, log, server_id)
+        self.db = get_db()
 
         self.leader_id = None
         self.last_heartbeat = time.time()
@@ -170,6 +172,8 @@ class Server:
                 worker_id = msg.get("worker")
                 task_name = msg.get("task")
 
+                self.db.set_completed(task_id, worker_id)
+
                 self.log(f"[Leader {self.id}] Response from Server {worker_id}: task {task_id} executed → broadcasting completed")
 
                 await self.rabbit.broadcast_msg({
@@ -212,7 +216,10 @@ class Server:
             return
 
         self.task_counter += 1
-        task_id = task_id = f"leader_{self.id}_task_{self.task_counter}"
+        task_id = f"leader_{self.id}_task_{self.task_counter}"
+
+        # Persist to DB before dispatching — guarantees the task survives a leader crash
+        self.db.insert_task(task_id, msg["task"], msg.get("category", ""))
 
         self.log(f"[Leader {self.id}] Received task from client → index 1: assigning task {task_id} to worker")
 
@@ -302,6 +309,20 @@ class Server:
             self.task_submission_consumer = await self.rabbit.consume_task_submission(self.handle_task_submission)
         except Exception as e:
             self.log(f"[Server {self.id}] Failed task consumer: {e}")
+
+        pending = self.db.get_pending_tasks()
+        if pending:
+            self.log(f"[Leader {self.id}] DB recovery: {len(pending)} pending task(s) found → re-queuing")
+            for t in pending:
+                await self.rabbit.publish_to_workers({
+                    "type": "TASK",
+                    "task_id": t["task_id"],
+                    "task": t["task_name"],
+                    "category": t["category"],
+                    "index": 1,
+                })
+        else:
+            self.log(f"[Leader {self.id}] DB recovery: no pending tasks")
 
     async def heartbeat_loop(self):
         while self.alive and self.leader_id == self.id:
