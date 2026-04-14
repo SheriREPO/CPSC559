@@ -1,0 +1,144 @@
+services:
+
+  # ── RabbitMQ ──────────────────────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+      # Allow large messages for base64 image payloads (default is 128MB, set explicitly)
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit max_message_size 134217728"
+    
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 5s
+      timeout: 10s
+      retries: 15
+      start_period: 20s   # give RabbitMQ time to fully boot before health checks begin
+
+  # ── Servers ───────────────────────────────────────────────────────────────
+  server_1:
+    build: ./backend
+    container_name: server_1
+    restart: unless-stopped
+    environment:
+      SERVER_ID: 1
+      RABBIT_URL: amqp://guest:guest@rabbitmq/
+      GMAIL_USER: ${GMAIL_USER}
+      GMAIL_PASS: ${GMAIL_PASS}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      DB_PATH: /app/data/tasks.db
+      WAL_PATH: /app/data/tasks.wal
+    volumes:
+      - server_1_data:/app/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  server_2:
+    build: ./backend
+    container_name: server_2
+    restart: unless-stopped
+    environment:
+      SERVER_ID: 2
+      RABBIT_URL: amqp://guest:guest@rabbitmq/
+      GMAIL_USER: ${GMAIL_USER}
+      GMAIL_PASS: ${GMAIL_PASS}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      DB_PATH: /app/data/tasks.db
+      WAL_PATH: /app/data/tasks.wal
+    volumes:
+      - server_2_data:/app/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  server_3:
+    build: ./backend
+    container_name: server_3
+    restart: unless-stopped
+    environment:
+      SERVER_ID: 3
+      RABBIT_URL: amqp://guest:guest@rabbitmq/
+      GMAIL_USER: ${GMAIL_USER}
+      GMAIL_PASS: ${GMAIL_PASS}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      DB_PATH: /app/data/tasks.db
+      WAL_PATH: /app/data/tasks.wal
+    volumes:
+      - server_3_data:/app/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  server_4:
+    build: ./backend
+    container_name: server_4
+    restart: unless-stopped
+    environment:
+      SERVER_ID: 4
+      RABBIT_URL: amqp://guest:guest@rabbitmq/
+      GMAIL_USER: ${GMAIL_USER}
+      GMAIL_PASS: ${GMAIL_PASS}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      DB_PATH: /app/data/tasks.db
+      WAL_PATH: /app/data/tasks.wal
+    volumes:
+      - server_4_data:/app/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  server_5:
+    build: ./backend
+    container_name: server_5
+    restart: unless-stopped
+    environment:
+      SERVER_ID: 5
+      RABBIT_URL: amqp://guest:guest@rabbitmq/
+      GMAIL_USER: ${GMAIL_USER}
+      GMAIL_PASS: ${GMAIL_PASS}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      DB_PATH: /app/data/tasks.db
+      WAL_PATH: /app/data/tasks.wal
+    volumes:
+      - server_5_data:/app/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  # ── Dashboard (FastAPI) ───────────────────────────────────────────────────
+  dashboard:
+    build: ./backend
+    container_name: dashboard
+    restart: unless-stopped
+    command: uvicorn dashboard:app --host 0.0.0.0 --port 8000
+    environment:
+      RABBIT_URL: amqp://guest:guest@rabbitmq/
+      GMAIL_USER: ${GMAIL_USER}
+      GMAIL_PASS: ${GMAIL_PASS}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  # ── Frontend (nginx + Vite) ───────────────────────────────────────────────
+  frontend:
+    build: ./frontend
+    container_name: frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - dashboard
+volumes:
+  server_1_data:
+  server_2_data:
+  server_3_data:
+  server_4_data:
+  server_5_data:
