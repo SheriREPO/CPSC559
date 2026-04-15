@@ -21,7 +21,11 @@ RUN rm -rf /usr/share/nginx/html/*
 # Copy Vite build output
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Copy our custom nginx config (handles proxying /api and /ws to FastAPI)
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Defaults for same-machine compose; override at runtime for multi-PC deploys.
+ENV DASHBOARD_HOST=dashboard
+ENV DASHBOARD_PORT=8000
+
+# The official nginx entrypoint renders templates from /etc/nginx/templates.
+COPY default.conf.template /etc/nginx/templates/default.conf.template
 
 EXPOSE 80
