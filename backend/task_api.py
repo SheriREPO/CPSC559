@@ -226,7 +226,7 @@ async def task_generate_summary(details: dict) -> dict:
             {"role": "user", "content": f"Summarise this text:\n\n{text}"},
         ])
         # Simulate longer processing time for LLM tasks
-        # await asyncio.sleep(30)
+        await asyncio.sleep(30)
         result = json.loads(response)
         return {"success": True, **result}
 

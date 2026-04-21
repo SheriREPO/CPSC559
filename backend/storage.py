@@ -154,7 +154,7 @@ def get_all_tasks() -> list:
     conn.close()
     return [dict(r) for r in rows]
 
-
+# This is used before marking a task done/failed so the server doesn’t try to update a task record that was never stored.
 def task_exists(task_id: int) -> bool:
     conn = _connect()
     row = conn.execute("SELECT 1 FROM tasks WHERE task_id=?", (task_id,)).fetchone()
