@@ -6,11 +6,11 @@ services:
     container_name: rabbitmq
     restart: unless-stopped
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "${RABBITMQ_PUBLIC_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-app}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-change-me}
       # Allow large messages for base64 image payloads (default is 128MB, set explicitly)
       RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit max_message_size 134217728"
     
@@ -28,7 +28,7 @@ services:
     restart: unless-stopped
     environment:
       SERVER_ID: 1
-      RABBIT_URL: amqp://guest:guest@rabbitmq/
+      RABBIT_URL: amqp://${RABBITMQ_USER:-app}:${RABBITMQ_PASS:-change-me}@${RABBITMQ_HOST:-rabbitmq}:${RABBITMQ_PORT:-5672}/
       GMAIL_USER: ${GMAIL_USER}
       GMAIL_PASS: ${GMAIL_PASS}
       GROQ_API_KEY: ${GROQ_API_KEY}
@@ -46,7 +46,7 @@ services:
     restart: unless-stopped
     environment:
       SERVER_ID: 2
-      RABBIT_URL: amqp://guest:guest@rabbitmq/
+      RABBIT_URL: amqp://${RABBITMQ_USER:-app}:${RABBITMQ_PASS:-change-me}@${RABBITMQ_HOST:-rabbitmq}:${RABBITMQ_PORT:-5672}/
       GMAIL_USER: ${GMAIL_USER}
       GMAIL_PASS: ${GMAIL_PASS}
       GROQ_API_KEY: ${GROQ_API_KEY}
@@ -64,7 +64,7 @@ services:
     restart: unless-stopped
     environment:
       SERVER_ID: 3
-      RABBIT_URL: amqp://guest:guest@rabbitmq/
+      RABBIT_URL: amqp://${RABBITMQ_USER:-app}:${RABBITMQ_PASS:-change-me}@${RABBITMQ_HOST:-rabbitmq}:${RABBITMQ_PORT:-5672}/
       GMAIL_USER: ${GMAIL_USER}
       GMAIL_PASS: ${GMAIL_PASS}
       GROQ_API_KEY: ${GROQ_API_KEY}
@@ -82,7 +82,7 @@ services:
     restart: unless-stopped
     environment:
       SERVER_ID: 4
-      RABBIT_URL: amqp://guest:guest@rabbitmq/
+      RABBIT_URL: amqp://${RABBITMQ_USER:-app}:${RABBITMQ_PASS:-change-me}@${RABBITMQ_HOST:-rabbitmq}:${RABBITMQ_PORT:-5672}/
       GMAIL_USER: ${GMAIL_USER}
       GMAIL_PASS: ${GMAIL_PASS}
       GROQ_API_KEY: ${GROQ_API_KEY}
@@ -100,7 +100,7 @@ services:
     restart: unless-stopped
     environment:
       SERVER_ID: 5
-      RABBIT_URL: amqp://guest:guest@rabbitmq/
+      RABBIT_URL: amqp://${RABBITMQ_USER:-app}:${RABBITMQ_PASS:-change-me}@${RABBITMQ_HOST:-rabbitmq}:${RABBITMQ_PORT:-5672}/
       GMAIL_USER: ${GMAIL_USER}
       GMAIL_PASS: ${GMAIL_PASS}
       GROQ_API_KEY: ${GROQ_API_KEY}
@@ -118,8 +118,10 @@ services:
     container_name: dashboard
     restart: unless-stopped
     command: uvicorn dashboard:app --host 0.0.0.0 --port 8000
+    ports:
+      - "${DASHBOARD_PUBLIC_PORT:-8000}:8000"
     environment:
-      RABBIT_URL: amqp://guest:guest@rabbitmq/
+      RABBIT_URL: amqp://${RABBITMQ_USER:-app}:${RABBITMQ_PASS:-change-me}@${RABBITMQ_HOST:-rabbitmq}:${RABBITMQ_PORT:-5672}/
       GMAIL_USER: ${GMAIL_USER}
       GMAIL_PASS: ${GMAIL_PASS}
       GROQ_API_KEY: ${GROQ_API_KEY}
@@ -132,8 +134,11 @@ services:
     build: ./frontend
     container_name: frontend
     restart: unless-stopped
+    environment:
+      DASHBOARD_HOST: ${DASHBOARD_HOST:-dashboard}
+      DASHBOARD_PORT: ${DASHBOARD_PORT:-8000}
     ports:
-      - "80:80"
+      - "${FRONTEND_PUBLIC_PORT:-80}:80"
     depends_on:
       - dashboard
 volumes:

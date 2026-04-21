@@ -65,6 +65,29 @@ async def handle_heartbeat(msg: aio_pika.IncomingMessage):
         workers   = body.get("workers", [])  # list of known-alive worker IDs
         if leader_id is not None:
             now = time.time()
+            # In the bully algorithm, the highest live server ID wins.
+            # Ignore stale heartbeats from a lower-ID leader if we have
+            # already heard from a higher-ID leader recently.
+            current_leader = next(
+                (
+                    sid for sid, state in server_states.items()
+                    if state["status"] == "Leader"
+                    and now - state["last_seen"] <= OFFLINE_TIMEOUT
+                ),
+                None,
+            )
+            if (
+                current_leader is not None
+                and current_leader != leader_id
+                and current_leader > leader_id
+            ):
+                return
+
+            # Accept the incoming leader and demote any other current leader.
+            for sid, state in server_states.items():
+                if sid != leader_id and state["status"] == "Leader":
+                    server_states[sid]["status"] = "Worker"
+
             # Mark leader alive
             server_states[leader_id] = {"status": "Leader", "last_seen": now}
             # Mark all workers the leader knows about as alive
@@ -263,3 +286,11 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         if websocket in connected_clients:
             connected_clients.remove(websocket)
+
+@app.get("/state")
+async def get_state():
+    return {
+        "servers": server_states,
+        "logs": logs[-50:],
+        "tasks": task_history[-30:],
+    }
