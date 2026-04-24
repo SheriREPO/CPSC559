@@ -1,4 +1,3 @@
-# rabbitmq.py
 import aio_pika
 import json
 from aio_pika import ExchangeType, Message, DeliveryMode
@@ -14,7 +13,6 @@ class RabbitMQ:
         self.conn = await aio_pika.connect_robust(self.url)
         self.channel = await self.conn.channel()
 
-        # ── Exchanges ────────────────────────────────────────────────────────
         self.direct = await self.channel.declare_exchange(
             "direct_exchange", ExchangeType.DIRECT, durable=True
         )
@@ -25,7 +23,6 @@ class RabbitMQ:
             "heartbeat_exchange", ExchangeType.FANOUT, durable=True
         )
 
-        # ── Shared queues ────────────────────────────────────────────────────
         self.task_submission_queue = await self.channel.declare_queue(
             TASK_SUBMISSION_QUEUE, durable=True
         )
@@ -36,12 +33,10 @@ class RabbitMQ:
         )
         await self.worker_tasks_queue.bind(self.direct, routing_key=WORKER_TASKS_QUEUE)
 
-        # ── Per-server direct queue (for PING/PONG) ──────────────────────────
-        # Each server gets its own queue named "server_<id>" so the leader
-        # can ping a specific worker and the worker can reply directly back.
         if server_id is not None:
             self.server_id = server_id
             queue_name = f"server_{server_id}"
+            # each server needs its own named queue so the leader can ping it directly
             self.direct_queue = await self.channel.declare_queue(
                 queue_name, durable=True
             )
@@ -53,7 +48,6 @@ class RabbitMQ:
         if hasattr(self, "conn") and self.conn and not self.conn.is_closed:
             await self.conn.close()
 
-    # ── Task submission ───────────────────────────────────────────────────────
     async def submit_task(self, payload):
         self.log(f"[RabbitMQ] → task_submission | {payload}")
         msg = Message(
@@ -72,6 +66,7 @@ class RabbitMQ:
 
     async def consume_task_submission(self, callback):
         async def handler(msg):
+            # requeue=True so if the leader crashes mid-processing the message goes back to the queue
             async with msg.process(requeue=True):
                 body = json.loads(msg.body.decode())
                 self.log(f"[RabbitMQ] ← task_submission | {body}")
@@ -89,7 +84,6 @@ class RabbitMQ:
 
         await self.worker_tasks_queue.consume(handler)
 
-    # ── Broadcast (fanout) ────────────────────────────────────────────────────
     async def broadcast_msg(self, payload):
         self.log(f"[RabbitMQ] → broadcast | {payload}")
         msg = Message(json.dumps(payload).encode())
@@ -107,7 +101,6 @@ class RabbitMQ:
 
         await queue.consume(handler)
 
-    # ── Heartbeat (fanout) ────────────────────────────────────────────────────
     async def send_heartbeat(self, payload):
         msg = Message(json.dumps(payload).encode())
         await self.heartbeat.publish(msg, routing_key="")
@@ -123,14 +116,11 @@ class RabbitMQ:
 
         await queue.consume(handler)
 
-    # ── Direct PING/PONG (point-to-point) ────────────────────────────────────
     async def send_direct(self, target_server_id, payload):
-        """Send a message directly to a specific server's queue."""
         msg = Message(json.dumps(payload).encode())
         await self.direct.publish(msg, routing_key=f"server_{target_server_id}")
 
     async def consume_direct(self, callback):
-        """Consume messages from this server's own direct queue."""
         async def handler(msg):
             async with msg.process():
                 body = json.loads(msg.body.decode())

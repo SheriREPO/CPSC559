@@ -19,7 +19,6 @@ COPY dashboard.py .
 COPY task_api.py .
 COPY storage.py .
 
-# Create data directory for SQLite DB and WAL
 RUN mkdir -p /app/data
 
 CMD ["python", "server_runner.py"]

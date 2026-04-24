@@ -1,4 +1,3 @@
-# dashboard.py
 import asyncio
 import json
 import time
@@ -11,21 +10,15 @@ from aio_pika import ExchangeType, Message, DeliveryMode
 from contextlib import asynccontextmanager
 
 RABBIT_URL = os.environ.get("RABBIT_URL", "amqp://guest:guest@localhost/")
+OFFLINE_TIMEOUT = 6  # needs to be longer than the heartbeat interval (1s) with enough slack for network delay
 
-# How long without ANY message from a server before marking it offline.
-# Workers don't send heartbeats, but they do send ELECTION, OK, TASK_EXECUTED
-# broadcasts. If we hear nothing for this long, the server is gone.
-OFFLINE_TIMEOUT = 6
-
-# ── Shared state ─────────────────────────────────────────────────────────────
-# server_id → { "status": "Leader"|"Worker"|"Offline", "last_seen": float }
 server_states: dict[int, dict] = {
     i: {"status": "Offline", "last_seen": 0} for i in range(1, 6)
 }
 logs: list[str] = []
 task_history: list[dict] = []
 connected_clients: list[WebSocket] = []
-pending_tasks: dict = {}  # token -> {task, submitted_at}
+pending_tasks: dict = {}
 
 rabbit_conn = None
 rabbit_channel = None
@@ -39,7 +32,6 @@ def add_log(msg: str):
 
 
 async def broadcast_state():
-    """Push current state to all connected WebSocket clients."""
     if not connected_clients:
         return
     payload = json.dumps({
@@ -62,12 +54,9 @@ async def handle_heartbeat(msg: aio_pika.IncomingMessage):
     async with msg.process():
         body = json.loads(msg.body.decode())
         leader_id = body.get("leader")
-        workers   = body.get("workers", [])  # list of known-alive worker IDs
+        workers = body.get("workers", [])
         if leader_id is not None:
             now = time.time()
-            # In the bully algorithm, the highest live server ID wins.
-            # Ignore stale heartbeats from a lower-ID leader if we have
-            # already heard from a higher-ID leader recently.
             current_leader = next(
                 (
                     sid for sid, state in server_states.items()
@@ -76,6 +65,7 @@ async def handle_heartbeat(msg: aio_pika.IncomingMessage):
                 ),
                 None,
             )
+            # bully algorithm: a lower-ID server can't override a higher-ID leader that's still alive
             if (
                 current_leader is not None
                 and current_leader != leader_id
@@ -83,14 +73,11 @@ async def handle_heartbeat(msg: aio_pika.IncomingMessage):
             ):
                 return
 
-            # Accept the incoming leader and demote any other current leader.
             for sid, state in server_states.items():
                 if sid != leader_id and state["status"] == "Leader":
                     server_states[sid]["status"] = "Worker"
 
-            # Mark leader alive
             server_states[leader_id] = {"status": "Leader", "last_seen": now}
-            # Mark all workers the leader knows about as alive
             for wid in workers:
                 if wid in server_states:
                     server_states[wid]["last_seen"] = now
@@ -116,7 +103,6 @@ async def handle_broadcast(msg: aio_pika.IncomingMessage):
                 if sid == new_leader:
                     server_states[sid] = {"status": "Leader", "last_seen": now}
                 elif server_states[sid]["status"] == "Leader":
-                    # Old leader stepped down → Worker
                     server_states[sid]["status"] = "Worker"
 
         elif msg_type == "ELECTION":
@@ -129,57 +115,46 @@ async def handle_broadcast(msg: aio_pika.IncomingMessage):
 
         elif msg_type == "LEADER_DEAD":
             dead_id = body.get("dead_leader")
-            caller  = body.get("caller")
             add_log(f"💀 Server {dead_id} (leader) declared dead — new election starting")
             if dead_id in server_states:
                 server_states[dead_id]["status"] = "Offline"
-
 
         elif msg_type == "TASK_EXECUTED":
             worker = body.get("worker")
 
         elif msg_type == "TASK_DONE":
-            task_id   = body.get("task_id")
+            task_id = body.get("task_id")
             task_name = body.get("task", "Unknown")
-            worker    = body.get("worker")
-            result    = body.get("result", {})
-            success   = result.get("success", True)
-            status    = "✅" if success else "❌"
+            worker = body.get("worker")
+            result = body.get("result", {})
+            success = result.get("success", True)
+            status = "✅" if success else "❌"
             add_log(f"{status} Task #{task_id} '{task_name}' done by Server {worker}")
 
-            # Token is embedded in the task payload and returned in TASK_DONE
             matched_token = body.get("token")
 
             task_history.append({
-                "id":      task_id,
-                "task":    task_name,
-                "worker":  worker,
-                "time":    time.strftime("%H:%M:%S"),
-                "result":  result,
+                "id": task_id,
+                "task": task_name,
+                "worker": worker,
+                "time": time.strftime("%H:%M:%S"),
+                "result": result,
                 "success": success,
-                "token":   matched_token,
+                "token": matched_token,
             })
             if len(task_history) > 100:
                 task_history.pop(0)
-
 
         await broadcast_state()
 
 
 async def watch_offline():
-    """
-    Periodically check all servers.
-    A server goes Offline if we haven't heard anything from it
-    (heartbeat OR any broadcast) for OFFLINE_TIMEOUT seconds.
-    Workers don't send heartbeats but they do send ELECTION/OK/TASK_EXECUTED,
-    so silence really does mean they're gone.
-    """
     while True:
         await asyncio.sleep(1)
         now = time.time()
         changed = False
         for sid, state in server_states.items():
-            if state["status"] != "Offline" and state["last_seen"] > 0:
+            if state["status"] != "Offline" and state["last_seen"] > 0:  # skip servers that never checked in
                 if now - state["last_seen"] > OFFLINE_TIMEOUT:
                     server_states[sid]["status"] = "Offline"
                     add_log(f"📴 Server {sid} went offline")
@@ -206,9 +181,9 @@ async def lifespan(app: FastAPI):
 
     rabbit_channel = await rabbit_conn.channel()
 
-    direct_ex    = await rabbit_channel.declare_exchange("direct_exchange",    ExchangeType.DIRECT,  durable=True)
-    broadcast_ex = await rabbit_channel.declare_exchange("broadcast_exchange", ExchangeType.FANOUT,  durable=True)
-    heartbeat_ex = await rabbit_channel.declare_exchange("heartbeat_exchange", ExchangeType.FANOUT,  durable=True)
+    direct_ex = await rabbit_channel.declare_exchange("direct_exchange", ExchangeType.DIRECT, durable=True)
+    broadcast_ex = await rabbit_channel.declare_exchange("broadcast_exchange", ExchangeType.FANOUT, durable=True)
+    heartbeat_ex = await rabbit_channel.declare_exchange("heartbeat_exchange", ExchangeType.FANOUT, durable=True)
 
     task_queue = await rabbit_channel.declare_queue("task_submission", durable=True)
     await task_queue.bind(direct_ex, routing_key="task_submission")
@@ -286,6 +261,7 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         if websocket in connected_clients:
             connected_clients.remove(websocket)
+
 
 @app.get("/state")
 async def get_state():

@@ -1,17 +1,13 @@
-# storage.py — SQLite persistence for task state + Write-Ahead Log
-
 import sqlite3
 import json
 import time
 import os
 
-DB_PATH  = os.environ.get("DB_PATH", "/app/tasks.db")
+DB_PATH = os.environ.get("DB_PATH", "/app/tasks.db")
 WAL_PATH = os.environ.get("WAL_PATH", "/app/tasks.wal")
 
 
-# ── Database setup ─────────────────────────────────────────────────────────────
 def init_db():
-    """Create the tasks table and WAL file if they don't exist."""
     conn = _connect()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
@@ -19,19 +15,18 @@ def init_db():
             token        TEXT,
             task_name    TEXT    NOT NULL,
             category     TEXT,
-            details      TEXT,       -- JSON
+            details      TEXT,
             status       TEXT    NOT NULL DEFAULT 'PENDING',
-            assigned_to  INTEGER,    -- server_id of assigned worker
+            assigned_to  INTEGER,
             assigned_at  REAL,
             completed_at REAL,
-            result       TEXT,       -- JSON
+            result       TEXT,
             created_at   REAL    NOT NULL
         )
     """)
     conn.commit()
     conn.close()
 
-    # Create WAL file if it doesn't exist
     if not os.path.exists(WAL_PATH):
         open(WAL_PATH, "w").close()
 
@@ -42,16 +37,13 @@ def _connect():
     return conn
 
 
-# ── WAL helpers ────────────────────────────────────────────────────────────────
 def _wal_append(entry: dict):
-    """Append a log entry BEFORE making any DB change."""
+    # always write to the WAL before touching the DB — if we crash between the two, replay fixes it
     with open(WAL_PATH, "a") as f:
         f.write(json.dumps({**entry, "ts": time.time()}) + "\n")
 
 
-# ── Task operations ────────────────────────────────────────────────────────────
 def save_task(task_id: int, token: str, task_name: str, category: str, details: dict):
-    """Insert a new PENDING task. Called by leader when task is received."""
     _wal_append({
         "op": "INSERT", "task_id": task_id, "token": token,
         "task_name": task_name, "status": "PENDING",
@@ -67,7 +59,6 @@ def save_task(task_id: int, token: str, task_name: str, category: str, details: 
 
 
 def mark_assigned(task_id: int, worker_id: int):
-    """Update task to ASSIGNED. Called by leader after round-robin pick."""
     _wal_append({
         "op": "UPDATE", "task_id": task_id,
         "old_status": "PENDING", "new_status": "ASSIGNED", "worker": worker_id,
@@ -82,7 +73,6 @@ def mark_assigned(task_id: int, worker_id: int):
 
 
 def mark_completed(task_id: int, result: dict):
-    """Update task to COMPLETED. Called by all servers on TASK_DONE broadcast."""
     _wal_append({
         "op": "UPDATE", "task_id": task_id,
         "old_status": "ASSIGNED", "new_status": "COMPLETED",
@@ -97,7 +87,6 @@ def mark_completed(task_id: int, result: dict):
 
 
 def mark_failed(task_id: int, error: str):
-    """Update task to FAILED."""
     _wal_append({
         "op": "UPDATE", "task_id": task_id,
         "old_status": "ASSIGNED", "new_status": "FAILED", "error": error,
@@ -113,12 +102,8 @@ def mark_failed(task_id: int, error: str):
 
 def replicate_task(task_id: int, token: str, task_name: str, category: str,
                    details: dict, status: str, assigned_to: int):
-    """
-    Called on all servers when leader broadcasts TASK_REPLICATED.
-    Ensures every server has a record of in-flight tasks, not just completed ones.
-    Uses INSERT OR REPLACE so it's idempotent.
-    """
     conn = _connect()
+    # INSERT OR REPLACE so this is idempotent if the same broadcast arrives more than once
     conn.execute("""
         INSERT OR REPLACE INTO tasks
             (task_id, token, task_name, category, details, status, assigned_to, created_at)
@@ -130,10 +115,6 @@ def replicate_task(task_id: int, token: str, task_name: str, category: str,
 
 
 def get_incomplete_tasks() -> list:
-    """
-    Return all PENDING or ASSIGNED tasks.
-    Used by new leader on startup to find tasks that need re-queuing.
-    """
     conn = _connect()
     rows = conn.execute("""
         SELECT task_id, token, task_name, category, details, status, assigned_to, assigned_at
@@ -146,7 +127,6 @@ def get_incomplete_tasks() -> list:
 
 
 def get_all_tasks() -> list:
-    """Return full task history. Used by dashboard API."""
     conn = _connect()
     rows = conn.execute("""
         SELECT * FROM tasks ORDER BY task_id DESC LIMIT 100
@@ -154,7 +134,7 @@ def get_all_tasks() -> list:
     conn.close()
     return [dict(r) for r in rows]
 
-# This is used before marking a task done/failed so the server doesn’t try to update a task record that was never stored.
+
 def task_exists(task_id: int) -> bool:
     conn = _connect()
     row = conn.execute("SELECT 1 FROM tasks WHERE task_id=?", (task_id,)).fetchone()
@@ -162,12 +142,7 @@ def task_exists(task_id: int) -> bool:
     return row is not None
 
 
-# ── WAL replay (called on startup to fix any incomplete writes) ────────────────
 def replay_wal():
-    """
-    On startup, replay the WAL to fix any DB state left incomplete
-    by a crash mid-write. Safe to call multiple times (idempotent).
-    """
     if not os.path.exists(WAL_PATH):
         return
 
@@ -179,12 +154,11 @@ def replay_wal():
                 continue
             try:
                 entry = json.loads(line)
-                op       = entry.get("op")
-                task_id  = entry.get("task_id")
-                status   = entry.get("new_status")
+                op = entry.get("op")
+                task_id = entry.get("task_id")
+                status = entry.get("new_status")
 
                 if op == "INSERT":
-                    # Ensure PENDING row exists
                     conn.execute("""
                         INSERT OR IGNORE INTO tasks
                             (task_id, token, task_name, status, created_at)
@@ -210,7 +184,7 @@ def replay_wal():
                     """, (task_id,))
 
             except Exception:
-                pass  # Skip malformed lines
+                pass
 
     conn.commit()
     conn.close()
