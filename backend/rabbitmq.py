@@ -101,10 +101,12 @@ class RabbitMQ:
 
         await queue.consume(handler)
 
+    # Publishes a single heartbeat message to the heartbeat_exchange() function.
     async def send_heartbeat(self, payload):
         msg = Message(json.dumps(payload).encode())
         await self.heartbeat.publish(msg, routing_key="")
 
+    # Subscribes a node to the heartbeat exchange via an exclusive auto-generated queue.
     async def consume_heartbeat(self, callback):
         queue = await self.channel.declare_queue(exclusive=True)
         await queue.bind(self.heartbeat)

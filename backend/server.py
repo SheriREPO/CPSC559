@@ -59,6 +59,7 @@ class Server:
         await asyncio.sleep(2)  # give other servers a chance to broadcast before we decide who's leader
         await self.evaluate_leadership()
 
+    #Triggers a preemptive election when a server with a higher identifier than the current leader joins or restarts.
     async def evaluate_leadership(self):
         if self.leader_id is None:
             self.log(f"[Server {self.id}] No known leader -> starting election")
@@ -92,6 +93,7 @@ class Server:
         elif msg_type == "TASK":
             await self.handle_worker_task(msg)
 
+    # Dispatches incoming ELECTION, OK, COORDINATOR, and task messages to their respective handlers.
     async def handle_broadcast(self, msg):
         msg_type = msg.get("type")
 
@@ -194,6 +196,7 @@ class Server:
             if self.on_status_change:
                 self.on_status_change(self.id, "WORKER")
 
+    # Filters the known server list to those whose most recent PONG falls within the liveness window.
     async def get_alive_workers(self):
         now = time.time()
         return [
@@ -203,6 +206,7 @@ class Server:
             and now - self.worker_last_pong[sid] <= PING_TIMEOUT
         ]
 
+    # Enforces the invariant that only the elected leader may accept and schedule incoming tasks.
     async def handle_task_submission(self, msg):
         if self.id != self.leader_id:
             self.log(f"[Server {self.id}] Not the leader — requeuing task for leader {self.leader_id}")
@@ -216,12 +220,14 @@ class Server:
         category = msg.get("category", "")
         details = msg.get("details", {})
 
+        # Persists a newly submitted task to the local database before assignment begins.
         save_task(task_id, token, task_name, category, details)
 
         workers = await self.get_alive_workers()
 
         if not workers:
             self.log(f"[Leader {self.id}] No alive workers — executing task {task_id} locally")
+            # Updates a tasks status to ASSIGNED and records the target worker identifier.
             mark_assigned(task_id, self.id)
             self.in_flight[task_id] = {
                 "token": token, "task": task_name, "category": category,
@@ -264,6 +270,7 @@ class Server:
             "index": 1,
         })
 
+    # Executes the assigned task on the worker node and broadcasts the result as TASK_EXECUTED.
     async def handle_worker_task(self, msg):
         task_id = msg.get("task_id")
         task = msg.get("task", "Unknown")
@@ -305,6 +312,7 @@ class Server:
             "token": token,
         })
 
+    # Allows an incoming leader to identify incomplete work left by its predecessor and redistribute it to available workers.
     async def recover_tasks(self):
         await asyncio.sleep(3)  # wait for the cluster to settle before re-queueing — workers may still be coming up
         incomplete = get_incomplete_tasks()
@@ -348,6 +356,7 @@ class Server:
                 "index": 1,
             })
 
+    # Detects worker crashes mid-task by tracking assignment timestamps and triggers reassignment to a healthy node.
     async def monitor_in_flight(self):
         while self.alive and self.leader_id == self.id:
             await asyncio.sleep(5)
@@ -396,6 +405,7 @@ class Server:
                     })
                     self.log(f"[Leader {self.id}] Task {task_id} reassigned to Server {new_target}")
 
+    # Enables the leader to monitor worker liveness through periodic PING/PONG exchanges.
     async def ping_loop(self):
         await asyncio.sleep(PING_INTERVAL)
         while self.alive and self.leader_id == self.id:
@@ -411,6 +421,7 @@ class Server:
                     self.log(f"[Leader {self.id}] Failed to ping Server {sid}: {e}")
             await asyncio.sleep(PING_INTERVAL)
 
+    # Keeps all workers informed that the leader is alive through periodic fanout broadcasts.
     async def heartbeat_loop(self):
         while self.alive and self.leader_id == self.id:
             try:
@@ -429,6 +440,7 @@ class Server:
                 self.log(f"[Leader {self.id}] Heartbeat send failed: {e} — will retry")
             await asyncio.sleep(1)
 
+    # Detects leader failure by tracking elapsed time since the last received heartbeat.
     async def monitor_heartbeat(self):
         while self.alive:
             if (
@@ -447,6 +459,7 @@ class Server:
                 await self.start_election()
             await asyncio.sleep(1)
 
+    # Initiates the Bully Algorithm election procedure.
     async def start_election(self):
         if self.election_in_progress:
             return
@@ -459,6 +472,7 @@ class Server:
             await self.become_leader()
         self.election_in_progress = False
 
+    # Declares the current server as coordinator, resets leader state, and announces the result to the cluster.
     async def become_leader(self):
         if self.leader_id == self.id:
             return

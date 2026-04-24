@@ -36,7 +36,7 @@ def _connect():
     conn.row_factory = sqlite3.Row
     return conn
 
-
+# Writes a structured log entry to disk before any state change is committed to the database.
 def _wal_append(entry: dict):
     # always write to the WAL before touching the DB — if we crash between the two, replay fixes it
     with open(WAL_PATH, "a") as f:
@@ -99,7 +99,7 @@ def mark_failed(task_id: int, error: str):
     conn.commit()
     conn.close()
 
-
+# Upserts task metadata across all replicas immediately after assignment, ensuring cluster-wide consistency.
 def replicate_task(task_id: int, token: str, task_name: str, category: str,
                    details: dict, status: str, assigned_to: int):
     conn = _connect()
@@ -113,7 +113,7 @@ def replicate_task(task_id: int, token: str, task_name: str, category: str,
     conn.commit()
     conn.close()
 
-
+# Queries the local database for all tasks in PENDING Or ASSIGNED states, used during leader recovery.
 def get_incomplete_tasks() -> list:
     conn = _connect()
     rows = conn.execute("""
@@ -141,7 +141,7 @@ def task_exists(task_id: int) -> bool:
     conn.close()
     return row is not None
 
-
+# Reconstructs local database state on restart by replaying all log entries in sequence.
 def replay_wal():
     if not os.path.exists(WAL_PATH):
         return
